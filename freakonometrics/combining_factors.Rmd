@@ -1,0 +1,182 @@
+---
+title: "Combining factor levels with trees"
+author: "Bizovi Mihai"
+date: "10/12/2019"
+output: html_document
+---
+
+It is almost always hard to work with **high cardinality** features such as zip codes. Deep learning practitioners have the concept of **embeddings** coming to the rescue sometimes, but that doesn't save the modeler if there are not enough samples to handle such a dimensionality. Recent advances, such as the brilliant **Catboost** are found to work well empirically, but what to do when the task is one of inference? A rigorous way would be to use (Bayesian) Hierarchical Models and pooling, but it is hard and time-consuming.
+
+
+> "In practice, it’s like “you have the zip code”, but the underlying true variable is “urban/rural” (in the context of spatial factors, it would be better to incorporate the fact that some levels are “neighboors”). If you do not merge them, you will clearly overfit!" - comment by A. Carpentier
+
+
+An interesting [blog post](https://freakonometrics.hypotheses.org/58446) by A. Carpentier is about combining factor levels with trees. This is an example of post-hoc testing to extract the hierarchical structure of factors. Here are some additional resources to consider, if you want to experiment with this approach:
+
+* The original [blog post](https://freakonometrics.hypotheses.org/55451) on combining factors with t-tests
+* The factorMerger [package website](https://modeloriented.github.io/factorMerger/articles/factorMerger.html)
+* The [paper](https://arxiv.org/pdf/1709.04412.pdf) for the Journal of Statistical Software
+
+
+### Getting started
+
+```{r message=FALSE, warning=FALSE}
+# install the package manager
+if (!require("pacman")) {
+  install.packages("pacman")
+}
+
+# load the packages
+pacman::p_load(factorMerger, tidyverse, rpart, rpart.plot)
+```
+
+```{r simulated_data}
+set.seed(1)
+
+# simulate the dataset
+n  <- 200
+x1 <- runif(n)
+x2 <- runif(n)
+
+# a regression with a factor variable and a continuous one
+y <- 1 + 2*x1 - x2 + rnorm(n, 0, 0.2)
+labs <- sample(LETTERS[1:10])
+
+df <- tibble(
+  y = y, x1 = x1, 
+  x2 = cut(x2, breaks = c(-1, .05, .1, .2, .35, .4, .55, .65, .8, .9, 2), 
+           labels = labs)
+)
+head(df) %>% knitr::kable()
+```
+
+```{r}
+df %>% ggplot(aes(x = x1, y = y, color = x2)) + 
+  geom_point() + 
+  stat_smooth(method="lm", se=FALSE) + 
+  theme_classic() + 
+  scale_color_viridis_d() + 
+  labs(x = "Continuous variable X", y = "Response y")
+```
+
+
+
+```{r}
+summary(lm(y~x1+x2,data=df))
+```
+
+### Strategies for combining factors
+
+```{r multiple_testing}
+# construct the factor matrix
+nr_levels <- nlevels(df$x2)
+P <- matrix(NA, nr_levels, nr_levels)
+colnames(P) <- LETTERS[1:10]
+rownames(P) <- LETTERS[1:10]
+
+# plot an empty matrix
+plot(1:nlevels(df$x2), 1:nr_levels, col = "white",
+     xlab = "",ylab = "", axes = FALSE, xlim = c(0, 10.5),
+     ylim = c(0, 10.5), asp = 1)
+
+# plot the axis labeling
+text(1:10, 0, LETTERS[1:10])
+text(0, 1:10, LETTERS[1:10])
+
+# iterate for each level
+for(i in 1:nr_levels){
+  df$x2 <- relevel(df$x2,LETTERS[i])
+  
+  # extract the p-value of coefficients, excluding intercept and continuous
+  p <- summary(lm(y ~ x1 + x2, data = df))$coefficients[-(1:2), 4]
+  names(p) <- substr(names(p),3,3) # extract variable names
+  
+  P[LETTERS[i], names(p)] <- p
+  p <- P[LETTERS[i], ]
+  
+  # add black points with p-value greater than 0.5
+  idx <- which(p >= .05)
+  points(((1:10))[idx], rep(i, length(idx)), pch=1, cex=2)
+  
+  # add black points with p-value greater than 0.5
+  idx=which(p >= .1)
+  points(((1:10))[idx], rep(i,length(idx)), pch=19, cex=2)
+}
+```
+
+For a better readability, we can manually define the order of factors. Again, very careful thought is needed when automating this, especially with combining factors (see the pitfalls).
+
+```{r}
+LETTERSord <- c("I","A","H","F","B","D","G","C","J","E")
+P <- matrix(NA, nr_levels, nr_levels)
+colnames(P) <- LETTERSord
+rownames(P) <- LETTERSord
+ct <- c(3,3,2,1,1) # cutoffs
+
+# plot the empty, ordered matrix with the cutoffs
+plot(1:nr_levels, 1:nr_levels, col="white", xlab="", ylab="", 
+     axes=FALSE, xlim=c(0,10.5), ylim=c(0,10.5), asp = 1)
+abline(v=.5 + c(0, cumsum(ct)), lty=2)
+abline(h=.5 + c(0, cumsum(ct)), lty=2)
+text(1:10, 0, LETTERSord)
+text(0, 1:10, LETTERSord)
+
+
+for(i in 1:nr_levels){
+  df$x2 <- relevel(df$x2, LETTERSord[i])
+  
+  # linear regression with testing the factors
+  p <- summary(lm(y ~ x1 + x2, data = df))$coefficients[-(1:2),4]
+  names(p) <- substr(names(p), 3, 3)
+  
+  P[LETTERSord[i], names(p)] <- p
+  p <- P[LETTERSord[i], ]
+  
+  idx <- which(p >= .05)
+  points(((1:10))[idx], rep(i,length(idx)), pch=1, cex=2)
+  
+  idx <- which(p >= .1)
+  points(((1:10))[idx],rep(i,length(idx)), pch=19, cex=2)
+}
+```
+
+### Pitfalls
+
+* Post-hoc, multiple testing which should be accounted for
+* Information leakage, because we used the value of the target
+* An approach similar to what `catboost` is doing could help to mitigate the issue, or a careful data split and methodology when doing these kind of things.
+
+Nonetheless, a decision tree carefully ran on the residual, might suggest factor combinations which can improve the regression. Again, remembering Y. A. Mostafa, we should account for the degrees of freedom used by this investigation, if we are to assess the generalization of the model with combined factors.
+
+```{r}
+# running a regression tree on the residuals to be explained
+# by the categorical variable
+df$e <- residuals(lm(y ~ x1, data = df))
+tree <- rpart(e ~ x2, data = df)
+prp(tree, type = 2, extra = 1)
+```
+
+### FactorMerger library
+
+```{r}
+merged_factors <- factorMerger::mergeFactors(
+  response = df$y, factor = df$x2, family = "gaussian")
+plot(merged_factors, panel = "response" )
+```
+
+```{r fig.width=10, fig.height=5}
+fmAll <- mergeFactors(
+ response = pisa2012$math,
+ factor = pisa2012$country,
+ method = "fast-adaptive",
+ family = "gaussian")
+
+plot(fmAll, panel = "response", responsePanel = "tukey")
+plot(fmAll, panel = "response", responsePanel = "profile")
+```
+
+
+
+
+
+
