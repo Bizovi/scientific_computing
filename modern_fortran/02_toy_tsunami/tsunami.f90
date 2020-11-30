@@ -1,16 +1,20 @@
 program tsunami
+
+    use iso_fortran_env, only: int32, real32
+    use mod_initial, only: set_gaussian
+    use mod_diff, only: diff
     implicit none
 
     ! ========= Declare vars and constants =======
     ! ============================================
-    integer, parameter :: grid_size = 100           ! constant, same line required init.
-    integer, parameter :: num_time_steps = 100      ! simulation length
-    real,    parameter :: dt = 1., dx = 1., c = 1.  ! time step, grid step, bg flow speed
-    integer, parameter :: icenter = 25              ! mean of gaussian / central index
-    real,    parameter :: decay = 0.02              ! shape factor (1/sigma)
+    integer(int32), parameter :: grid_size = 100          ! constant, same line required init.
+    integer(int32), parameter :: num_time_steps = 100     ! simulation length
+    real(real32),   parameter :: dt = 1., dx = 1., c = 1. ! time step, grid step, bg flow speed
+    integer(int32), parameter :: icenter = 25             ! mean of gaussian / central index
+    real(real32),   parameter :: decay = 0.02             ! shape factor (1/sigma)
 
-    integer :: n          ! n - time step idx, i - becomes vectorized
-    real :: h(grid_size)  ! real, dimension(grid_size), dh calculated on-the-fly
+    integer(int32) :: n           ! n - time step idx, i - becomes vectorized
+    real(real32) :: h(grid_size)  ! real, dimension(grid_size), dh calculated on-the-fly
 
     if (grid_size <= 0) stop 'grid_size must be > 0'
     if (dt <= 0)        stop 'time step dt must be > 0'
@@ -26,30 +30,5 @@ program tsunami
         h = h - c*diff(h) / dx*dt
         print *, n, h
     end do time_loop
-
-contains
-    ! set a vector to the gaussian values with (center/mean, decay/scale)
-    subroutine set_gaussian(x, icenter, decay)
-        real, intent(in out) :: x(:)
-        integer, intent(in) :: icenter
-        real, intent(in) :: decay
-        integer :: i
-
-        do concurrent(i = 1:size(x))
-            x(i) = exp(-decay * (i - icenter)**2)
-        end do
-    end subroutine set_gaussian
-
-    ! calculates the difference in space of a real-valued input vector
-    ! hides the details of the implementation, e.g. the boundary condition
-    pure function diff(x) result(dx)
-        real, intent(in) :: x(:)  ! : assumes the shape of the passed array
-        real :: dx(size(x))       ! same size as x
-        integer :: im
-        
-        im = size(x)
-        dx(1) = x(1) - x(im)            ! handle the boundary condition
-        dx(2:im) = x(2:im) - x(1:im-1)  ! finite difference of other elements of x(:)
-    end function diff
     
 end program tsunami
