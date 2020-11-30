@@ -4,6 +4,7 @@
 
 # ignore fortran binaries
 **/build/
+**/*.mod
 
 # ignore R artifacts
 **/*.RDS
