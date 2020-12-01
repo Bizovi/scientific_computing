@@ -7,4 +7,7 @@ tsunami:
 run: 
 	./build/tsunami > data/tsunami_out.txt
 
-all: tsunami run
+animate:
+	python animate.py --animation
+
+all: tsunami run animate
