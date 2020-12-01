@@ -1,6 +1,9 @@
 # ignore files and data
 **/*.json
 **/*.csv
+**/data/*.txt
+**/*.svg
+**/*.gif
 
 # ignore fortran binaries
 **/build/
