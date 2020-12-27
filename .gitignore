@@ -9,6 +9,9 @@
 **/build/
 **/*.mod
 
+# ignore c binaries and links
+**/*.dSYM/
+
 # ignore R artifacts
 **/*.RDS
 **/*.Renviron
